@@ -110,12 +110,13 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 def format_currency_br(val):
     return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --------------------------------------------------------
-# BANCO DE DADOS / ESTADO
-# --------------------------------------------------------
+import psycopg2
+import json
+import streamlit as st
 
-DB_PATH = "projeto_pmbok.db"
-
+# --------------------------------------------------------
+# BANCO DE DADOS / ESTADO  (Neon / PostgreSQL)
+# --------------------------------------------------------
 
 def default_state():
     return {
@@ -144,102 +145,138 @@ def default_state():
             "recomendacoes": "",
             "obs": ""
         },
-        "actionPlan": []  # plano de ação
+        "actionPlan": []
     }
 
 
+# --------------------------------------------------------
+# Conexão com o Neon (PostgreSQL)
+# --------------------------------------------------------
 def get_conn():
-    return sqlite3.connect(DB_PATH)
+    """
+    Conecta no banco usando o Streamlit Secrets:
+    st.secrets["general"]["database_url"]
+    """
+    db_url = st.secrets["general"]["database_url"]
+    return psycopg2.connect(db_url, sslmode="require")
 
 
+# --------------------------------------------------------
+# Criação da tabela (se não existir)
+# --------------------------------------------------------
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             data TEXT,
             nome TEXT,
             status TEXT,
             dataInicio TEXT,
             gerente TEXT,
             patrocinador TEXT,
-            encerrado INTEGER DEFAULT 0
+            encerrado BOOLEAN DEFAULT FALSE
         )
-        """
-    )
+    """)
     conn.commit()
+    cur.close()
     conn.close()
 
 
+# --------------------------------------------------------
+# LISTAR PROJETOS
+# --------------------------------------------------------
 def list_projects():
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         SELECT id, nome, status, dataInicio, gerente, patrocinador, encerrado
         FROM projects
         ORDER BY id DESC
-        """
-    )
+    """)
     rows = cur.fetchall()
+    cur.close()
     conn.close()
+
     projetos = []
     for r in rows:
-        projetos.append(
-            {
-                "id": r[0],
-                "nome": r[1] or "",
-                "status": r[2] or "",
-                "dataInicio": r[3] or "",
-                "gerente": r[4] or "",
-                "patrocinador": r[5] or "",
-                "encerrado": bool(r[6]),
-            }
-        )
+        projetos.append({
+            "id": r[0],
+            "nome": r[1] or "",
+            "status": r[2] or "",
+            "dataInicio": r[3] or "",
+            "gerente": r[4] or "",
+            "patrocinador": r[5] or "",
+            "encerrado": bool(r[6]),
+        })
     return projetos
 
 
+# --------------------------------------------------------
+# CARREGAR ESTADO DO PROJETO
+# --------------------------------------------------------
 def load_project_state(project_id: int):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT data FROM projects WHERE id = ?", (project_id,))
+    cur.execute("SELECT data FROM projects WHERE id = %s", (project_id,))
     row = cur.fetchone()
+    cur.close()
     conn.close()
+
     if row and row[0]:
         try:
-            data = json.loads(row[0])
-            if "actionPlan" not in data:
-                data["actionPlan"] = []
-            return data
+            estado = json.loads(row[0])
+            if "actionPlan" not in estado:
+                estado["actionPlan"] = []
+            return estado
         except Exception:
             return default_state()
+
     return default_state()
 
 
+# --------------------------------------------------------
+# SALVAR ESTADO DO PROJETO
+# --------------------------------------------------------
 def save_project_state(project_id: int, data: dict):
-    tap = data.get("tap", {}) if isinstance(data, dict) else {}
-    nome = tap.get("nome", "") or ""
-    status = tap.get("status", "rascunho") or "rascunho"
-    dataInicio = tap.get("dataInicio", "") or ""
-    gerente = tap.get("gerente", "") or ""
-    patrocinador = tap.get("patrocinador", "") or ""
+    tap = data.get("tap", {})
+    nome = tap.get("nome", "")
+    status = tap.get("status", "rascunho")
+    dataInicio = tap.get("dataInicio", "")
+    gerente = tap.get("gerente", "")
+    patrocinador = tap.get("patrocinador", "")
 
     conn = get_conn()
-    conn.execute(
-        """
+    cur = conn.cursor()
+    cur.execute("""
         UPDATE projects
-        SET data = ?, nome = ?, status = ?, dataInicio = ?, gerente = ?, patrocinador = ?
-        WHERE id = ?
-        """,
-        (json.dumps(data), nome, status, dataInicio, gerente, patrocinador, project_id),
-    )
+        SET data = %s,
+            nome = %s,
+            status = %s,
+            dataInicio = %s,
+            gerente = %s,
+            patrocinador = %s
+        WHERE id = %s
+    """, (
+        json.dumps(data),
+        nome,
+        status,
+        dataInicio,
+        gerente,
+        patrocinador,
+        project_id
+    ))
+
     conn.commit()
+    cur.close()
     conn.close()
 
 
-def create_project(initial_data=None, meta=None) -> int:
+# --------------------------------------------------------
+# CRIAR NOVO PROJETO
+# --------------------------------------------------------
+def create_project(initial_data=None, meta=None):
     if initial_data is None:
         initial_data = default_state()
     if meta is None:
@@ -262,51 +299,68 @@ def create_project(initial_data=None, meta=None) -> int:
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         INSERT INTO projects (data, nome, status, dataInicio, gerente, patrocinador, encerrado)
-        VALUES (?, ?, ?, ?, ?, ?, 0)
-        """,
-        (
-            json.dumps(initial_data),
-            nome,
-            status,
-            dataInicio,
-            gerente,
-            patrocinador,
-        ),
-    )
-    project_id = cur.lastrowid
+        VALUES (%s, %s, %s, %s, %s, %s, FALSE)
+        RETURNING id
+    """, (
+        json.dumps(initial_data),
+        nome,
+        status,
+        dataInicio,
+        gerente,
+        patrocinador,
+    ))
+
+    project_id = cur.fetchone()[0]
     conn.commit()
+    cur.close()
     conn.close()
+
     return project_id
 
 
+# --------------------------------------------------------
+# ENCERRAR PROJETO
+# --------------------------------------------------------
 def close_project(project_id: int):
     conn = get_conn()
-    conn.execute(
-        "UPDATE projects SET encerrado = 1, status = ? WHERE id = ?",
-        ("encerrado", project_id),
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE projects SET encerrado = TRUE, status = %s WHERE id = %s",
+        ("encerrado", project_id)
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
+# --------------------------------------------------------
+# REABRIR PROJETO
+# --------------------------------------------------------
 def reopen_project(project_id: int):
     conn = get_conn()
-    conn.execute(
-        "UPDATE projects SET encerrado = 0 WHERE id = ?",
-        (project_id,),
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE projects SET encerrado = FALSE WHERE id = %s",
+        (project_id,)
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
+# --------------------------------------------------------
+# EXCLUIR PROJETO
+# --------------------------------------------------------
 def delete_project(project_id: int):
     conn = get_conn()
-    conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
     conn.commit()
+    cur.close()
     conn.close()
+
 
 # --------------------------------------------------------
 # CPM / GANTT / CURVA S TRABALHO
