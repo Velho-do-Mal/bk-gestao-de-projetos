@@ -3690,6 +3690,22 @@ with tabs[8]:
     df_r = pd.DataFrame(risks) if risks else pd.DataFrame()
     df_l = pd.DataFrame(lessons) if lessons else pd.DataFrame()
 
+    # Função utilitária para montar HTML completo para download
+    def montar_html_completo(html_corpo: str) -> str:
+        return f"""
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="utf-8">
+            <title>Relatório do Projeto</title>
+            {CUSTOM_CSS}
+        </head>
+        <body>
+            {html_corpo}
+        </body>
+        </html>
+        """
+
     if tipo_rel == "Extrato financeiro":
         if df_fin.empty:
             st.info("Não há lançamentos financeiros para gerar o extrato.")
@@ -3747,7 +3763,7 @@ with tabs[8]:
             total_saidas = (df_fin[df_fin["Tipo"] == "Saída"]["valor"] * df_fin[df_fin["Tipo"] == "Saída"]["qtdRecorrencias"]).sum()
             saldo = total_entradas - total_saidas
 
-            html = f"""
+            html_corpo = f"""
             <div class="bk-report">
               <h2>Extrato Financeiro do Projeto</h2>
               <small>Projeto: {tap.get('nome','')} &mdash; Gerente: {tap.get('gerente','')}</small>
@@ -3761,10 +3777,21 @@ with tabs[8]:
               {html_tabela}
             </div>
             """
-            components.html(CUSTOM_CSS + html, height=600, scrolling=True)
+
+            # Exibe no app
+            components.html(CUSTOM_CSS + html_corpo, height=600, scrolling=True)
+
+            # Botão para download / impressão
+            html_completo = montar_html_completo(html_corpo)
+            st.download_button(
+                "⬇️ Baixar relatório em HTML",
+                data=html_completo.encode("utf-8"),
+                file_name="relatorio_extrato_financeiro.html",
+                mime="text/html",
+            )
 
     elif tipo_rel == "Resumo TAP":
-        html = f"""
+        html_corpo = f"""
         <div class="bk-report">
           <h2>Resumo do Termo de Abertura do Projeto (TAP)</h2>
           <small>Projeto ID: {st.session_state.current_project_id}</small>
@@ -3786,7 +3813,16 @@ with tabs[8]:
           <p>{tap.get('requisitos','').replace(chr(10),'<br>')}</p>
         </div>
         """
-        components.html(CUSTOM_CSS + html, height=700, scrolling=True)
+
+        components.html(CUSTOM_CSS + html_corpo, height=700, scrolling=True)
+
+        html_completo = montar_html_completo(html_corpo)
+        st.download_button(
+            "⬇️ Baixar relatório em HTML",
+            data=html_completo.encode("utf-8"),
+            file_name="relatorio_resumo_tap.html",
+            mime="text/html",
+        )
 
     elif tipo_rel == "Riscos e Lições":
         if not df_r.empty:
@@ -3829,7 +3865,7 @@ with tabs[8]:
         else:
             html_licoes = "<p>Não há lições registradas.</p>"
 
-        html = f"""
+        html_corpo = f"""
         <div class="bk-report">
           <h2>Riscos e Lições Aprendidas</h2>
           <small>Projeto: {tap.get('nome','')}</small>
@@ -3839,7 +3875,16 @@ with tabs[8]:
           {html_licoes}
         </div>
         """
-        components.html(CUSTOM_CSS + html, height=700, scrolling=True)
+
+        components.html(CUSTOM_CSS + html_corpo, height=700, scrolling=True)
+
+        html_completo = montar_html_completo(html_corpo)
+        st.download_button(
+            "⬇️ Baixar relatório em HTML",
+            data=html_completo.encode("utf-8"),
+            file_name="relatorio_riscos_licoes.html",
+            mime="text/html",
+        )
 
     else:  # Relatório completo
         qtd_eap = len(eapTasks)
@@ -3848,7 +3893,7 @@ with tabs[8]:
         qtd_risk = len(risks)
         qtd_les = len(lessons)
 
-        html = f"""
+        html_corpo = f"""
         <div class="bk-report">
           <h2>Relatório Completo do Projeto</h2>
           <small>Projeto: {tap.get('nome','')} &mdash; ID {st.session_state.current_project_id}</small>
@@ -3886,8 +3931,18 @@ with tabs[8]:
           </p>
         </div>
         """
-        components.html(CUSTOM_CSS + html, height=600, scrolling=True)
 
+        components.html(CUSTOM_CSS + html_corpo, height=600, scrolling=True)
+
+        html_completo = montar_html_completo(html_corpo)
+        st.download_button(
+            "⬇️ Baixar relatório em HTML",
+            data=html_completo.encode("utf-8"),
+            file_name="relatorio_completo_projeto.html",
+            mime="text/html",
+        )
+
+        # Mantém os gráficos interativos abaixo, como no seu código original
         st.markdown("#### 📈 Curva S de trabalho")
         if eapTasks and tap.get("dataInicio"):
             fig_s = gerar_curva_s_trabalho(eapTasks, tap["dataInicio"])
@@ -3937,106 +3992,3 @@ with tabs[8]:
             st.plotly_chart(fig_kpi, use_container_width=True)
         else:
             st.caption("Não há KPIs para exibir no relatório completo.")
-
-# --------------------------------------------------------
-# TAB 9 - PLANO DE AÇÃO
-# --------------------------------------------------------
-with tabs[9]:
-    st.markdown("### 📌 Plano de Ação do Projeto")
-
-    with st.expander("Adicionar item ao plano de ação", expanded=True):
-        c1p, c2p = st.columns(2)
-        with c1p:
-            pa_desc = st.text_input("Descrição da atividade do plano", key="pa_desc")
-            pa_resp = st.text_input("Responsável", key="pa_resp")
-        with c2p:
-            pa_data_inicio = st.date_input("Data de início planejada", key="pa_data_ini", value=date.today())
-            pa_data_fim_prev = st.date_input("Data de conclusão planejada", key="pa_data_fim_prev", value=date.today())
-
-        c3p, c4p = st.columns(2)
-        with c3p:
-            pa_concluida = st.checkbox("Concluída?", key="pa_concluida")
-        with c4p:
-            pa_data_fim_real = st.date_input(
-                "Data de conclusão real",
-                key="pa_data_fim_real",
-                value=date.today()
-            )
-
-        if st.button("Adicionar item do plano de ação", type="primary"):
-            if not pa_desc.strip() or not pa_resp.strip():
-                st.warning("Informe descrição e responsável.")
-            else:
-                item = {
-                    "id": int(datetime.now().timestamp() * 1000),
-                    "descricao": pa_desc.strip(),
-                    "responsavel": pa_resp.strip(),
-                    "dataInicio": pa_data_inicio.strftime("%Y-%m-%d"),
-                    "dataFimPrevista": pa_data_fim_prev.strftime("%Y-%m-%d"),
-                    "concluida": bool(pa_concluida),
-                    "dataFimReal": pa_data_fim_real.strftime("%Y-%m-%d") if pa_concluida else "",
-                }
-                action_plan.append(item)
-                salvar_estado()
-                st.success("Item do plano de ação adicionado.")
-                st.rerun()
-
-    if action_plan:
-        st.markdown("#### Itens do plano de ação")
-        df_pa = pd.DataFrame(action_plan)
-
-        hoje = date.today()
-
-        def avaliar_status(row):
-            concluida = bool(row.get("concluida"))
-            atrasada = False
-            try:
-                fim_prev = datetime.strptime(row.get("dataFimPrevista", ""), "%Y-%m-%d").date()
-                if not concluida and fim_prev < hoje:
-                    atrasada = True
-            except Exception:
-                atrasada = False
-
-            if concluida:
-                status_txt = "Concluída"
-                icone = "🟢"
-            elif atrasada:
-                status_txt = "Em atraso"
-                icone = "🔴"
-            else:
-                status_txt = "Em andamento"
-                icone = "⚪"
-
-            return pd.Series({"Status": status_txt, "Ícone": icone})
-
-        df_status = df_pa.apply(avaliar_status, axis=1)
-        df_pa_display = pd.concat([df_pa, df_status], axis=1)
-
-        df_pa_display = df_pa_display[
-            ["descricao", "responsavel", "dataInicio", "dataFimPrevista", "dataFimReal", "Status", "Ícone"]
-        ].copy()
-        df_pa_display.columns = [
-            "Descrição",
-            "Responsável",
-            "Início planejado",
-            "Conclusão planejada",
-            "Conclusão real",
-            "Status",
-            "Indicador",
-        ]
-
-        st.dataframe(df_pa_display, use_container_width=True, height=260)
-
-        idx_pa = st.selectbox(
-            "Selecione o item do plano de ação para excluir",
-            options=list(range(len(action_plan))),
-            format_func=lambda i: f"{action_plan[i]['descricao'][:60]} - {action_plan[i]['responsavel']}",
-            key="pa_del_idx"
-        )
-        if st.button("Excluir item do plano de ação selecionado", key="pa_del_btn"):
-            action_plan.pop(idx_pa)
-            salvar_estado()
-            st.success("Item do plano de ação excluído.")
-            st.rerun()
-    else:
-        st.info("Nenhum item cadastrado no plano de ação ainda.")
