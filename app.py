@@ -1433,104 +1433,114 @@ with tabs[3]:
         lanc_sel = next((l for l in finances if l["id"] == sel_id), None)
 
         if lanc_sel:
-            st.markdown("#### Editar lançamento selecionado")
-            fe1, fe2, fe3 = st.columns(3)
-            with fe1:
-                tipo_opts = ["Entrada", "Saída"]
-                tipo_val = lanc_sel.get("tipo", "Entrada")
-                if tipo_val not in tipo_opts:
-                    tipo_val = "Entrada"
-                tipo_edit = st.selectbox(
-                    "Tipo (edição)",
-                    tipo_opts,
-                    index=tipo_opts.index(tipo_val),
-                    key="fin_tipo_edit"
-                )
-                cat_opts = ["", "Mão de Obra", "Custos Diretos", "Impostos"]
-                cat_val = lanc_sel.get("categoria", "")
-                if cat_val not in cat_opts:
-                    cat_val = ""
-                categoria_edit = st.selectbox(
-                    "Categoria (edição - somente Saída)",
-                    cat_opts,
-                    index=cat_opts.index(cat_val),
-                    key="fin_categoria_edit",
-                )
-            with fe2:
-                desc_edit = st.text_input(
-                    "Descrição (edição)",
-                    value=lanc_sel.get("descricao", ""),
-                    key="fin_desc_edit"
-                )
-                sub_edit = st.text_input(
-                    "Subcategoria (edição)",
-                    value=lanc_sel.get("subcategoria", ""),
-                    key="fin_sub_edit"
-                )
-            with fe3:
-                valor_edit = st.number_input(
-                    "Valor (R$) - edição",
-                    min_value=0.0,
-                    value=float(lanc_sel.get("valor", 0.0)),
-                    step=100.0,
-                    key="fin_val_edit"
-                )
-                rec_opts = ["Nenhuma", "Diária", "Semanal", "Quinzenal", "Mensal"]
-                rec_val = lanc_sel.get("recorrencia", "Nenhuma")
-                if rec_val not in rec_opts:
-                    rec_val = "Nenhuma"
-                recorrencia_edit = st.selectbox(
-                    "Recorrência (edição)",
-                    rec_opts,
-                    index=rec_opts.index(rec_val),
-                    key="fin_rec_edit",
-                )
+            # --- SINCRONIZA O FORMULÁRIO QUANDO MUDA O LANÇAMENTO SELECIONADO ---
+            # Isso garante que, ao trocar o item no selectbox, os campos carregam
+            # os dados corretos do lançamento (e não ficam presos em estado antigo).
+            if st.session_state.get("fin_last_sel_id") != sel_id:
+                st.session_state["fin_last_sel_id"] = sel_id
 
-            fe4, fe5, fe6 = st.columns(3)
-            with fe4:
+                # Campos simples
+                st.session_state[f"fin_tipo_edit_{sel_id}"] = lanc_sel.get("tipo", "Entrada")
+                st.session_state[f"fin_categoria_edit_{sel_id}"] = lanc_sel.get("categoria", "")
+                st.session_state[f"fin_desc_edit_{sel_id}"] = lanc_sel.get("descricao", "")
+                st.session_state[f"fin_sub_edit_{sel_id}"] = lanc_sel.get("subcategoria", "")
+                st.session_state[f"fin_val_edit_{sel_id}"] = float(lanc_sel.get("valor", 0.0))
+                st.session_state[f"fin_rec_edit_{sel_id}"] = lanc_sel.get("recorrencia", "Nenhuma")
+
+                # Datas
                 dp_str = lanc_sel.get("dataPrevista") or date.today().strftime("%Y-%m-%d")
                 try:
                     dp_dt = datetime.strptime(dp_str, "%Y-%m-%d").date()
                 except Exception:
                     dp_dt = date.today()
-                data_prevista_edit = st.date_input(
-                    "Data prevista (edição)",
-                    value=dp_dt,
-                    key="fin_data_prev_edit"
-                )
-            with fe5:
-                realizado_edit = st.checkbox(
-                    "Realizado? (edição)",
-                    value=bool(lanc_sel.get("realizado")),
-                    key="fin_realizado_edit"
-                )
-            with fe6:
+                st.session_state[f"fin_data_prev_edit_{sel_id}"] = dp_dt
+
                 dr_str = lanc_sel.get("dataRealizada") or date.today().strftime("%Y-%m-%d")
                 try:
                     dr_dt = datetime.strptime(dr_str, "%Y-%m-%d").date()
                 except Exception:
                     dr_dt = date.today()
+                st.session_state[f"fin_data_real_edit_{sel_id}"] = dr_dt
+
+                # Realizado / recorrências
+                st.session_state[f"fin_realizado_edit_{sel_id}"] = bool(lanc_sel.get("realizado"))
+                try:
+                    qtd_base_int = int(lanc_sel.get("qtdRecorrencias", 1))
+                except Exception:
+                    qtd_base_int = 1
+                st.session_state[f"fin_qtd_rec_edit_{sel_id}"] = qtd_base_int
+
+            # ----------------- FORMULÁRIO DE EDIÇÃO -----------------
+            st.markdown("#### Editar lançamento selecionado")
+            fe1, fe2, fe3 = st.columns(3)
+            with fe1:
+                tipo_opts = ["Entrada", "Saída"]
+                tipo_edit = st.selectbox(
+                    "Tipo (edição)",
+                    tipo_opts,
+                    key=f"fin_tipo_edit_{sel_id}",  # valor vem de session_state
+                )
+
+                cat_opts = ["", "Mão de Obra", "Custos Diretos", "Impostos"]
+                categoria_edit = st.selectbox(
+                    "Categoria (edição - somente Saída)",
+                    cat_opts,
+                    key=f"fin_categoria_edit_{sel_id}",
+                )
+
+            with fe2:
+                desc_edit = st.text_input(
+                    "Descrição (edição)",
+                    key=f"fin_desc_edit_{sel_id}",
+                )
+                sub_edit = st.text_input(
+                    "Subcategoria (edição)",
+                    key=f"fin_sub_edit_{sel_id}",
+                )
+
+            with fe3:
+                valor_edit = st.number_input(
+                    "Valor (R$) - edição",
+                    min_value=0.0,
+                    step=100.0,
+                    key=f"fin_val_edit_{sel_id}",
+                )
+                rec_opts = ["Nenhuma", "Diária", "Semanal", "Quinzenal", "Mensal"]
+                recorrencia_edit = st.selectbox(
+                    "Recorrência (edição)",
+                    rec_opts,
+                    key=f"fin_rec_edit_{sel_id}",
+                )
+
+            fe4, fe5, fe6 = st.columns(3)
+            with fe4:
+                data_prevista_edit = st.date_input(
+                    "Data prevista (edição)",
+                    key=f"fin_data_prev_edit_{sel_id}",
+                )
+
+            with fe5:
+                realizado_edit = st.checkbox(
+                    "Realizado? (edição)",
+                    key=f"fin_realizado_edit_{sel_id}",
+                )
+
+            with fe6:
                 data_realizada_edit = st.date_input(
                     "Data realizada (edição)",
-                    value=dr_dt,
-                    key="fin_data_real_edit"
+                    key=f"fin_data_real_edit_{sel_id}",
                 )
 
             fe7, _, _ = st.columns(3)
             with fe7:
-                qtd_base = lanc_sel.get("qtdRecorrencias", 1)
-                try:
-                    qtd_base_int = int(qtd_base)
-                except Exception:
-                    qtd_base_int = 1
                 qtd_rec_edit = st.number_input(
                     "Quantidade de recorrências (edição)",
                     min_value=1,
-                    value=qtd_base_int,
-                    key="fin_qtd_rec_edit",
+                    key=f"fin_qtd_rec_edit_{sel_id}",
                 )
 
-            if st.button("Salvar alterações do lançamento selecionado", key="fin_edit_save"):
+            # BOTÃO DE SALVAR
+            if st.button("Salvar alterações do lançamento selecionado", key=f"fin_edit_save_{sel_id}"):
                 for l in finances:
                     if l["id"] == sel_id:
                         l["tipo"] = tipo_edit
