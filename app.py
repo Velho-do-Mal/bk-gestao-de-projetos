@@ -1,10 +1,18 @@
 import streamlit as st
+
 import streamlit.components.v1 as components  # IMPORT CORRETO PARA HTML
+
 import psycopg2
+
 import json
+
 from datetime import datetime, date, timedelta
+
 import pandas as pd
+
 import plotly.express as px
+
+
 
 # --------------------------------------------------------
 # CONFIGURAÇÃO BÁSICA / CSS
@@ -14,6 +22,7 @@ st.set_page_config(
     page_title="Gestão de Projetos PMBOK - BK Engenharia",
     layout="wide"
 )
+
 
 CUSTOM_CSS = """
 <style>
@@ -178,10 +187,32 @@ body {
 .tag-dot.warn { background: #f97316; }
 .tag-dot.danger { background: #ef4444; }
 .tag-dot.info { background: #38bdf8; }
+
+/* RELATÓRIO - MELHORIAS VISUAIS */
+.report-title {
+    text-align: center;
+    color: #7c95d0;
+    font-weight: 700;
+    padding: 12px 0;
+    font-size: 20px;
+}
+.report-subtitle {
+    text-align: center;
+    color: #9ca3af;
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+.report-section-title {
+    color: #cbd5e1;
+    background: linear-gradient(90deg, rgba(124,149,208,0.06), rgba(124,149,208,0.02));
+    padding: 8px 10px;
+    border-radius: 8px;
+}
 </style>
 """
 
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
 
 # --------------------------------------------------------
 # FUNÇÕES GERAIS
@@ -189,6 +220,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 def format_currency_br(val):
     return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 def default_state():
     """
@@ -217,6 +249,7 @@ def default_state():
         "actionPlan": [],
     }
 
+
 # --------------------------------------------------------
 # BANCO DE DADOS - NEON POSTGRESQL
 # --------------------------------------------------------
@@ -228,6 +261,7 @@ def get_conn():
     db_url = st.secrets["general"]["database_url"]
     conn = psycopg2.connect(db_url)
     return conn
+
 
 def init_db():
     """
@@ -254,6 +288,7 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
+
 
 def list_projects():
     """
@@ -287,6 +322,7 @@ def list_projects():
         )
     return projetos
 
+
 def load_project_state(project_id: int):
     """
     Carrega o JSON do campo 'data' para o estado do projeto.
@@ -307,6 +343,7 @@ def load_project_state(project_id: int):
         except Exception:
             return default_state()
     return default_state()
+
 
 def save_project_state(project_id: int, data: dict):
     """
@@ -338,6 +375,7 @@ def save_project_state(project_id: int, data: dict):
     conn.commit()
     cur.close()
     conn.close()
+
 
 def create_project(initial_data=None, meta=None) -> int:
     """
@@ -386,6 +424,7 @@ def create_project(initial_data=None, meta=None) -> int:
     conn.close()
     return project_id
 
+
 def close_project(project_id: int):
     conn = get_conn()
     cur = conn.cursor()
@@ -396,6 +435,7 @@ def close_project(project_id: int):
     conn.commit()
     cur.close()
     conn.close()
+
 
 def reopen_project(project_id: int):
     conn = get_conn()
@@ -408,6 +448,7 @@ def reopen_project(project_id: int):
     cur.close()
     conn.close()
 
+
 def delete_project(project_id: int):
     conn = get_conn()
     cur = conn.cursor()
@@ -415,6 +456,7 @@ def delete_project(project_id: int):
     conn.commit()
     cur.close()
     conn.close()
+
 
 # --------------------------------------------------------
 # CPM / GANTT / CURVA S TRABALHO
@@ -504,6 +546,7 @@ def calcular_cpm(tasks):
 
     return tasks, projeto_fim
 
+
 def gerar_curva_s_trabalho(tasks, data_inicio_str):
     if not tasks or not data_inicio_str:
         return None
@@ -554,12 +597,52 @@ def gerar_curva_s_trabalho(tasks, data_inicio_str):
     )
     return fig
 
+
+def gerar_gantt(tasks, data_inicio_str):
+    """
+    Gera um gráfico de Gantt simplificado a partir das tarefas (usa es/ef gerados pelo CPM).
+    """
+    if not tasks or not data_inicio_str:
+        return None
+    tasks_cpm, projeto_fim = calcular_cpm(tasks)
+    try:
+        data_inicio_dt = datetime.strptime(data_inicio_str, "%Y-%m-%d").date()
+    except Exception:
+        return None
+    rows = []
+    for t in tasks_cpm:
+        es = int(t.get("es", 0))
+        ef = int(t.get("ef", 0))
+        start = data_inicio_dt + timedelta(days=es)
+        finish = data_inicio_dt + timedelta(days=ef)
+        rows.append(
+            {
+                "Task": f"{t.get('codigo')} - {t.get('descricao')}",
+                "Start": start,
+                "Finish": finish,
+                "Resource": t.get("responsavel", ""),
+            }
+        )
+    if not rows:
+        return None
+    dfg = pd.DataFrame(rows)
+    fig = px.timeline(dfg, x_start="Start", x_end="Finish", y="Task", color="Resource")
+    fig.update_yaxes(autorange="reversed")
+    fig.update_layout(
+        template="plotly_dark",
+        height=350,
+        margin=dict(l=30, r=20, t=35, b=30),
+    )
+    return fig
+
+
 # --------------------------------------------------------
 # FINANCEIRO / CURVA S FINANCEIRA
 # --------------------------------------------------------
 
 def adicionar_dias(dt: date, qtd: int) -> date:
     return dt + timedelta(days=qtd)
+
 
 def expandir_recorrencia(lanc, inicio: date, fim: date):
     ocorrencias = []
@@ -598,6 +681,7 @@ def expandir_recorrencia(lanc, inicio: date, fim: date):
         d = adicionar_dias(d, inc)
     return ocorrencias
 
+
 def gerar_curva_s_financeira(finances, inicio_str, meses):
     if not finances or not inicio_str:
         return None, None
@@ -628,7 +712,10 @@ def gerar_curva_s_financeira(finances, inicio_str, meses):
 
     for l in finances:
         tipo = l["tipo"]
-        valor = float(l["valor"])
+        try:
+            valor = float(l["valor"])
+        except Exception:
+            valor = 0.0
         fator = 1 if tipo == "Entrada" else -1
 
         ocorrencias = expandir_recorrencia(l, inicio, fim)
@@ -637,10 +724,13 @@ def gerar_curva_s_financeira(finances, inicio_str, meses):
             mapa_prev[k] += fator * valor
 
         if l.get("realizado") and l.get("dataRealizada"):
-            dr = datetime.strptime(l["dataRealizada"], "%Y-%m-%d").date()
-            if inicio <= dr <= fim:
-                k = key_mes(dr)
-                mapa_real[k] += fator * valor
+            try:
+                dr = datetime.strptime(l["dataRealizada"], "%Y-%m-%d").date()
+                if inicio <= dr <= fim:
+                    k = key_mes(dr)
+                    mapa_real[k] += fator * valor
+            except Exception:
+                pass
 
     labels = sorted(mapa_prev.keys())
     prev_vals = [mapa_prev[k] for k in labels]
@@ -678,6 +768,7 @@ def gerar_curva_s_financeira(finances, inicio_str, meses):
 
     return df, fig
 
+
 # --------------------------------------------------------
 # INICIALIZAÇÃO
 # --------------------------------------------------------
@@ -697,6 +788,7 @@ if "current_project_id" not in st.session_state:
 
 if "state" not in st.session_state:
     st.session_state.state = default_state()
+
 
 # --------------------------------------------------------
 # HEADER GLOBAL
@@ -720,6 +812,7 @@ with col_info:
     )
 
 st.markdown("---")
+
 
 # --------------------------------------------------------
 # SIDEBAR - PROJETOS
@@ -811,6 +904,7 @@ with st.sidebar.expander("Ações do projeto atual", expanded=True):
         st.success("Projeto excluído.")
         st.rerun()
 
+
 # --------------------------------------------------------
 # CARREGA ESTADO ATUAL
 # --------------------------------------------------------
@@ -830,6 +924,7 @@ for idx, t in enumerate(eapTasks):
     if "id" not in t:
         t["id"] = int(datetime.now().timestamp() * 1000) + idx
 
+
 # --------------------------------------------------------
 # FUNÇÃO SALVAR
 # --------------------------------------------------------
@@ -846,6 +941,7 @@ def salvar_estado():
         "actionPlan": action_plan,
     }
     save_project_state(st.session_state.current_project_id, st.session_state.state)
+
 
 # --------------------------------------------------------
 # TABS
@@ -865,6 +961,7 @@ tabs = st.tabs(
         "📌 Plano de Ação",
     ]
 )
+
 
 # --------------------------------------------------------
 # TAB 0 - HOME
@@ -931,7 +1028,10 @@ with tabs[0]:
             saidas_real = df_fin_home[
                 (df_fin_home["tipo"] == "Saída") & (df_fin_home["realizado"])
             ]["valor"].sum()
-            saldo_real = entradas_real - saidas_real
+            try:
+                saldo_real = float(entradas_real) - float(saidas_real)
+            except Exception:
+                saldo_real = 0.0
 
     st.markdown("#### Situação operacional e financeira")
     c_sit1, c_sit2, c_sit3 = st.columns(3)
@@ -963,6 +1063,7 @@ with tabs[0]:
             )
         else:
             st.caption("Nenhum risco registrado.")
+
 
 # --------------------------------------------------------
 # TAB 1 - TAP
@@ -1083,6 +1184,7 @@ with tabs[1]:
         salvar_estado()
         st.success("TAP salvo e persistido no banco.")
 
+
 # --------------------------------------------------------
 # TAB 2 - EAP / CURVA S TRABALHO
 # --------------------------------------------------------
@@ -1145,9 +1247,20 @@ with tabs[2]:
 
     if eapTasks:
         st.markdown("#### Tabela de atividades da EAP")
+
+        # Indentação conforme nível (1..4) - usando NBSP para preservar espaços
         df_eap = pd.DataFrame(eapTasks)
         df_eap_sorted = df_eap.sort_values(by="codigo")
-        st.dataframe(df_eap_sorted.drop(columns=["id"]), use_container_width=True, height=260)
+        df_eap_display = df_eap_sorted.copy()
+        def indent_desc(row):
+            niv = int(row.get("nivel", 1)) if row.get("nivel") else 1
+            return ("\u00A0" * 4 * (niv - 1)) + str(row.get("descricao", ""))
+        df_eap_display["descricao"] = df_eap_display.apply(indent_desc, axis=1)
+        # Exibe a tabela com a descrição indentada
+        try:
+            st.dataframe(df_eap_display.drop(columns=["id"]), use_container_width=True, height=260)
+        except Exception:
+            st.dataframe(df_eap_display, use_container_width=True, height=260)
 
         idx_eap = st.selectbox(
             "Selecione a atividade para editar / excluir",
@@ -1258,10 +1371,18 @@ with tabs[2]:
                 st.plotly_chart(fig_s, use_container_width=True, key="curva_s_trabalho_main")
             else:
                 st.warning("Não foi possível gerar a Curva S de trabalho.")
+            # --- Gantt abaixo da Curva S (solicitado)
+            fig_gantt = gerar_gantt(eapTasks, tap["dataInicio"])
+            if fig_gantt:
+                st.markdown("#### Gráfico de Gantt (cronograma simplificado)")
+                st.plotly_chart(fig_gantt, use_container_width=True, key="gantt_main")
+            else:
+                st.caption("Gantt indisponível - verifique dados da EAP e data de início.")
         else:
             st.warning("Defina a data de início no TAP para gerar a Curva S de trabalho.")
     else:
         st.caption("Cadastre atividades na EAP para gerar a Curva S.")
+
 
 # --------------------------------------------------------
 # TAB 3 - FINANCEIRO / CURVA S
@@ -1394,7 +1515,10 @@ with tabs[3]:
 
         df_fin_display = pd.DataFrame(linhas)
 
-        df_fin_display["Valor (R$)"] = df_fin_display["valor"].map(
+        # Garantir que há uma coluna numérica para somas (evita problemas de tipo)
+        df_fin_display["valor_num"] = pd.to_numeric(df_fin_display["valor"], errors="coerce").fillna(0.0)
+
+        df_fin_display["Valor (R$)"] = df_fin_display["valor_num"].map(
             lambda x: format_currency_br(x)
         )
         df_fin_display["Realizada"] = df_fin_display["dataRealizada"].replace("", "-")
@@ -1434,8 +1558,6 @@ with tabs[3]:
 
         if lanc_sel:
             # --- SINCRONIZA O FORMULÁRIO QUANDO MUDA O LANÇAMENTO SELECIONADO ---
-            # Isso garante que, ao trocar o item no selectbox, os campos carregam
-            # os dados corretos do lançamento (e não ficam presos em estado antigo).
             if st.session_state.get("fin_last_sel_id") != sel_id:
                 st.session_state["fin_last_sel_id"] = sel_id
 
@@ -1569,8 +1691,9 @@ with tabs[3]:
             st.success("Lançamento excluído.")
             st.rerun()
 
-        total_entradas = df_fin_display[df_fin_display["tipo"] == "Entrada"]["valor"].sum()
-        total_saidas = df_fin_display[df_fin_display["tipo"] == "Saída"]["valor"].sum()
+        # <-- Verificação/Soma de entradas e saídas (garantida pela coluna valor_num)
+        total_entradas = float(df_fin_display[df_fin_display["tipo"] == "Entrada"]["valor_num"].sum())
+        total_saidas = float(df_fin_display[df_fin_display["tipo"] == "Saída"]["valor_num"].sum())
         saldo = total_entradas - total_saidas
         st.markdown(
             f"**Total de Entradas:** {format_currency_br(total_entradas)} &nbsp;&nbsp; "
@@ -1603,6 +1726,7 @@ with tabs[3]:
                 )
     else:
         st.info("Nenhum lançamento financeiro cadastrado até o momento.")
+
 
 # --------------------------------------------------------
 # TAB 4 - KPIs
@@ -1763,6 +1887,7 @@ with tabs[4]:
     else:
         st.info("Nenhum KPI registrado até o momento.")
 
+
 # --------------------------------------------------------
 # TAB 5 - RISCOS
 # --------------------------------------------------------
@@ -1909,6 +2034,7 @@ with tabs[5]:
     else:
         st.info("Nenhum risco registrado.")
 
+
 # --------------------------------------------------------
 # TAB 6 - LIÇÕES
 # --------------------------------------------------------
@@ -1971,6 +2097,7 @@ with tabs[6]:
     else:
         st.info("Nenhuma lição registrada.")
 
+
 # --------------------------------------------------------
 # TAB 7 - ENCERRAMENTO
 # --------------------------------------------------------
@@ -2017,6 +2144,7 @@ with tabs[7]:
         salvar_estado()
         st.success("Dados de encerramento salvos.")
 
+
 # --------------------------------------------------------
 # TAB 8 - RELATÓRIOS HTML
 # --------------------------------------------------------
@@ -2049,6 +2177,50 @@ with tabs[8]:
         </body>
         </html>
         """
+
+    # Helper: montar tabela EAP com indentação em HTML manual (para o relatório completo)
+    def build_eap_html_table(eap_tasks):
+        if not eap_tasks:
+            return "<p>Não há atividades cadastradas na EAP.</p>"
+        # Ordena por código
+        try:
+            df = pd.DataFrame(eap_tasks).sort_values(by="codigo")
+        except Exception:
+            df = pd.DataFrame(eap_tasks)
+        # Cabeçalho
+        html = "<table class='table-report'><thead><tr>"
+        headers = ["Código", "Descrição", "Nível", "Duração (dias)", "Responsável", "Status", "Predecessoras"]
+        for h in headers:
+            html += f"<th>{h}</th>"
+        html += "</tr></thead><tbody>"
+        for _, row in df.iterrows():
+            codigo = row.get("codigo", "")
+            descricao = row.get("descricao", "")
+            nivel = int(row.get("nivel", 1)) if row.get("nivel") else 1
+            dur = row.get("duracao", "")
+            resp = row.get("responsavel", "")
+            status = row.get("status", "")
+            preds = row.get("predecessoras", [])
+            if isinstance(preds, list):
+                preds_text = ", ".join(preds)
+            else:
+                preds_text = str(preds)
+            indent_px = 12 * max(nivel - 1, 0)
+            # Usar padding-left para indent
+            html += "<tr>"
+            html += f"<td>{codigo}</td>"
+            html += f"<td style='padding-left:{indent_px}px'>{descricao}</td>"
+            html += f"<td>{nivel}</td>"
+            html += f"<td>{dur}</td>"
+            html += f"<td>{resp}</td>"
+            html += f"<td>{status}</td>"
+            html += f"<td>{preds_text}</td>"
+            html += "</tr>"
+        html += "</tbody></table>"
+        return html
+
+    def months_between(start_date, end_date):
+        return (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month) + 1
 
     # --------------------- RELATÓRIO: EXTRATO FINANCEIRO ---------------------
     if tipo_rel == "Extrato financeiro":
@@ -2110,16 +2282,16 @@ with tabs[8]:
 
             html_corpo = f"""
             <div class="bk-report">
-              <h2>Extrato Financeiro do Projeto</h2>
-              <small>Projeto: {tap.get('nome','')} &mdash; Gerente: {tap.get('gerente','')}</small>
+              <h2 class="report-title">Extrato Financeiro do Projeto</h2>
+              <div class="report-subtitle">Projeto: {tap.get('nome','')} &mdash; Gerente: {tap.get('gerente','')}</div>
               <hr class="section-divider">
-              <h3>Resumo financeiro</h3>
+              <h3 class="report-section-title">Resumo financeiro</h3>
               <p>
                 Total de Entradas: <strong>{format_currency_br(total_entradas)}</strong><br>
                 Total de Saídas: <strong>{format_currency_br(total_saidas)}</strong><br>
                 Saldo acumulado: <strong>{format_currency_br(saldo)}</strong>
               </p>
-              <h3>Lançamentos detalhados</h3>
+              <h3 class="report-section-title">Lançamentos detalhados</h3>
               {html_tabela}
             </div>
             """
@@ -2138,10 +2310,10 @@ with tabs[8]:
     elif tipo_rel == "Resumo TAP":
         html_corpo = f"""
         <div class="bk-report">
-          <h2>Resumo do Termo de Abertura do Projeto (TAP)</h2>
-          <small>Projeto ID: {st.session_state.current_project_id}</small>
+          <h2 class="report-title">Resumo do Termo de Abertura do Projeto (TAP)</h2>
+          <div class="report-subtitle">Projeto ID: {st.session_state.current_project_id}</div>
           <hr class="section-divider">
-          <h3>Identificação</h3>
+          <h3 class="report-section-title">Identificação</h3>
           <p>
             <strong>Nome:</strong> {tap.get('nome','')}<br>
             <strong>Gerente:</strong> {tap.get('gerente','')}<br>
@@ -2149,13 +2321,13 @@ with tabs[8]:
             <strong>Data de início:</strong> {tap.get('dataInicio','')}<br>
             <strong>Status:</strong> {tap.get('status','rascunho')}
           </p>
-          <h3>Objetivo</h3>
+          <h3 class="report-section-title">Objetivo</h3>
           <p>{tap.get('objetivo','').replace(chr(10),'<br>')}</p>
-          <h3>Escopo inicial</h3>
+          <h3 class="report-section-title">Escopo inicial</h3>
           <p>{tap.get('escopo','').replace(chr(10),'<br>')}</p>
-          <h3>Premissas e restrições</h3>
+          <h3 class="report-section-title">Premissas e restrições</h3>
           <p>{tap.get('premissas','').replace(chr(10),'<br>')}</p>
-          <h3>Requisitos principais</h3>
+          <h3 class="report-section-title">Requisitos principais</h3>
           <p>{tap.get('requisitos','').replace(chr(10),'<br>')}</p>
         </div>
         """
@@ -2214,12 +2386,12 @@ with tabs[8]:
 
         html_corpo = f"""
         <div class="bk-report">
-          <h2>Riscos e Lições Aprendidas</h2>
-          <small>Projeto: {tap.get('nome','')}</small>
+          <h2 class="report-title">Riscos e Lições Aprendidas</h2>
+          <div class="report-subtitle">Projeto: {tap.get('nome','')}</div>
           <hr class="section-divider">
-          <h3>Riscos mapeados</h3>
+          <h3 class="report-section-title">Riscos mapeados</h3>
           {html_riscos}
-          <h3>Lições aprendidas</h3>
+          <h3 class="report-section-title">Lições aprendidas</h3>
           {html_licoes}
         </div>
         """
@@ -2242,40 +2414,84 @@ with tabs[8]:
         qtd_risk = len(risks)
         qtd_les = len(lessons)
 
-        # Tabela da EAP em HTML
-        if not df_eap_rel.empty:
-            df_eap_show = df_eap_rel[
-                ["codigo", "descricao", "nivel", "duracao", "responsavel", "status", "predecessoras"]
-            ].copy()
-            df_eap_show["predecessoras"] = df_eap_show["predecessoras"].apply(
-                lambda v: ", ".join(v) if isinstance(v, list) else str(v)
-            )
-            df_eap_show.columns = [
-                "Código",
-                "Descrição",
-                "Nível",
-                "Duração (dias)",
-                "Responsável",
-                "Status",
-                "Predecessoras",
-            ]
-            html_eap = df_eap_show.to_html(
-                index=False,
-                classes="table-report",
-                border=0,
-                justify="left",
-            )
+        # Tabela da EAP em HTML (com indentação)
+        html_eap = build_eap_html_table(eapTasks)
+
+        # RESULTADOS FINANCEIROS: Gerar curva S financeira do início ao fim do projeto
+        resumo_fin_html = "<p>Não há lançamentos financeiros cadastrados.</p>"
+        html_fluxo_table = "<p>Gráfico completo exibido abaixo no aplicativo (interativo).</p>"
+        df_fluxo_rel = None
+        fig_fluxo_rel = None
+        total_previsto_final = 0.0
+        total_realizado_final = 0.0
+        if finances and eapTasks and tap.get("dataInicio"):
+            try:
+                # Determinar meses entre dataInicio e fim do projeto a partir do CPM
+                tasks_cpm, total_dias = calcular_cpm(eapTasks)
+                data_inicio_dt = datetime.strptime(tap["dataInicio"], "%Y-%m-%d").date()
+                projeto_fim_dt = data_inicio_dt + timedelta(days=total_dias)
+                meses = months_between(data_inicio_dt.replace(day=1), projeto_fim_dt.replace(day=1))
+                inicio_mes_str = f"{data_inicio_dt.year}-{str(data_inicio_dt.month).zfill(2)}"
+                df_fluxo_rel, fig_fluxo_rel = gerar_curva_s_financeira(finances, inicio_mes_str, meses)
+                if df_fluxo_rel is not None and len(df_fluxo_rel):
+                    # últimos valores acumulados
+                    total_previsto_final = float(df_fluxo_rel["Previsto (acumulado)"].iloc[-1])
+                    total_realizado_final = float(df_fluxo_rel["Realizado (acumulado)"].iloc[-1])
+                    html_fluxo_table = df_fluxo_rel.to_html(index=False, classes="table-report", border=0)
+                    resumo_fin_html = f"""
+                        <p>
+                        Total Previsto (acumulado): <strong>{format_currency_br(total_previsto_final)}</strong><br>
+                        Total Realizado (acumulado): <strong>{format_currency_br(total_realizado_final)}</strong><br>
+                        Saldo: <strong>{format_currency_br(total_previsto_final - total_realizado_final)}</strong>
+                        </p>
+                    """
+            except Exception:
+                resumo_fin_html = "<p>Não foi possível gerar o fluxo financeiro automaticamente. Verifique os dados.</p>"
         else:
-            html_eap = "<p>Não há atividades cadastradas na EAP.</p>"
+            # Se não houver EAP ou data de inicio, tentamos gerar um resumo simples das entradas/saídas
+            if finances:
+                try:
+                    df_fin_tmp = pd.DataFrame(finances)
+                    df_fin_tmp["valor_num"] = pd.to_numeric(df_fin_tmp["valor"], errors="coerce").fillna(0.0)
+                    total_previsto_final = float(df_fin_tmp[df_fin_tmp["tipo"] == "Entrada"]["valor_num"].sum())
+                    total_realizado_final = float(df_fin_tmp[df_fin_tmp["tipo"] == "Saída"]["valor_num"].sum())
+                    resumo_fin_html = f"""
+                        <p>
+                        Total Entradas (soma): <strong>{format_currency_br(total_previsto_final)}</strong><br>
+                        Total Saídas (soma): <strong>{format_currency_br(total_realizado_final)}</strong><br>
+                        Saldo: <strong>{format_currency_br(total_previsto_final - total_realizado_final)}</strong>
+                        </p>
+                    """
+                except Exception:
+                    pass
+
+        # KPIs em tabela
+        if kpis:
+            try:
+                df_k_show = pd.DataFrame(kpis)[["nome", "unidade", "mes", "previsto", "realizado"]].copy()
+                df_k_show.columns = ["Nome", "Unidade", "Mês", "Previsto", "Realizado"]
+                html_kpis = df_k_show.to_html(index=False, classes="table-report", border=0)
+            except Exception:
+                html_kpis = "<p>Não há KPIs formatáveis.</p>"
+        else:
+            html_kpis = "<p>Não há KPIs cadastrados.</p>"
+
+        # Lições aprendidas
+        if lessons:
+            df_l_show = pd.DataFrame(lessons)[["titulo", "fase", "categoria", "descricao", "recomendacao"]].copy()
+            df_l_show.columns = ["Título", "Fase", "Categoria", "Lição", "Recomendação"]
+            html_licoes = df_l_show.to_html(index=False, classes="table-report", border=0)
+        else:
+            html_licoes = "<p>Não há lições registradas.</p>"
 
         html_corpo = f"""
         <div class="bk-report">
-          <h2>Relatório Completo do Projeto</h2>
-          <small>Projeto: {tap.get('nome','')} &mdash; ID {st.session_state.current_project_id}</small>
+          <h2 class="report-title">Relatório Completo do Projeto</h2>
+          <div class="report-subtitle">Projeto: {tap.get('nome','')} &mdash; ID {st.session_state.current_project_id}</div>
 
           <hr class="section-divider">
 
-          <h3>1. Identificação e TAP</h3>
+          <h3 class="report-section-title">1. Identificação e TAP</h3>
           <p>
             <span class="tag-pill"><span class="tag-dot info"></span>TAP</span><br><br>
             <strong>Gerente:</strong> {tap.get('gerente','')}<br>
@@ -2284,11 +2500,11 @@ with tabs[8]:
             <strong>Status TAP:</strong> {tap.get('status','rascunho')}
           </p>
 
-          <h3>2. Objetivo e Escopo</h3>
+          <h3 class="report-section-title">2. Objetivo e Escopo</h3>
           <p><strong>Objetivo:</strong><br>{tap.get('objetivo','').replace(chr(10),'<br>')}</p>
           <p><strong>Escopo inicial:</strong><br>{tap.get('escopo','').replace(chr(10),'<br>')}</p>
 
-          <h3>3. Resumo de números</h3>
+          <h3 class="report-section-title">3. Resumo de números</h3>
           <p>
             Atividades na EAP: <strong>{qtd_eap}</strong><br>
             Lançamentos financeiros: <strong>{qtd_fin}</strong><br>
@@ -2297,23 +2513,31 @@ with tabs[8]:
             Lições aprendidas: <strong>{qtd_les}</strong>
           </p>
 
-          <h3>4. Estrutura Analítica do Projeto (EAP)</h3>
+          <h3 class="report-section-title">4. Estrutura Analítica do Projeto (EAP)</h3>
           {html_eap}
 
-          <h3>5. Encerramento</h3>
+          <h3 class="report-section-title">5. Resultados Financeiros (Previsto x Realizado)</h3>
+          {resumo_fin_html}
+          <h4 class="report-section-title">Fluxo de Caixa Mensal (acumulado)</h4>
+          {html_fluxo_table}
+
+          <h3 class="report-section-title">6. KPIs (Previstos x Realizados)</h3>
+          {html_kpis}
+
+          <h3 class="report-section-title">7. Lições Aprendidas</h3>
+          {html_licoes}
+
+          <h3 class="report-section-title">8. Encerramento</h3>
           <p><strong>Resumo executivo:</strong><br>{close_data.get('resumo','').replace(chr(10),'<br>')}</p>
           <p><strong>Resultados alcançados:</strong><br>{close_data.get('resultados','').replace(chr(10),'<br>')}</p>
-          <p><strong>Aceite do cliente:</strong><br>{close_data.get('aceite','').replace(chr(10),'<br>')}</p>
-          <p><strong>Recomendações:</strong><br>{close_data.get('recomendacoes','').replace(chr(10),'<br>')}</p>
-          <p><strong>Observações finais:</strong><br>{close_data.get('obs','').replace(chr(10),'<br>')}</p>
 
           <p style="margin-top:14px; font-size:11px; color:#9ca3af;">
-            *As curvas S de trabalho, financeira e o KPI principal são exibidos abaixo deste relatório em formato interativo no aplicativo.
+            *As curvas S de trabalho, financeira, o KPI principal e o Gantt interativo são exibidos abaixo deste relatório no aplicativo.
           </p>
         </div>
         """
 
-        components.html(CUSTOM_CSS + html_corpo, height=600, scrolling=True)
+        components.html(CUSTOM_CSS + html_corpo, height=800, scrolling=True)
 
         html_completo = montar_html_completo(html_corpo)
         st.download_button(
@@ -2334,16 +2558,14 @@ with tabs[8]:
                 "Curva S de trabalho indisponível - verifique EAP e data de início."
             )
 
-        st.markdown("#### 💹 Curva S Financeira")
-        if finances:
-            inicio_mes_auto = (
-                f"{datetime.now().year}-{str(datetime.now().month).zfill(2)}"
-            )
-            df_fluxo, fig_fluxo = gerar_curva_s_financeira(finances, inicio_mes_auto, 6)
-            if fig_fluxo:
-                st.plotly_chart(fig_fluxo, use_container_width=True)
+        st.markdown("#### 💹 Curva S Financeira (Previsto x Realizado)")
+        if df_fluxo_rel is not None and fig_fluxo_rel is not None:
+            st.plotly_chart(fig_fluxo_rel, use_container_width=True)
         else:
-            st.caption("Curva S financeira indisponível - não há lançamentos.")
+            if finances:
+                st.caption("Curva S financeira indisponível para o período calculado (verifique data de início ou EAP).")
+            else:
+                st.caption("Curva S financeira indisponível - não há lançamentos.")
 
         st.markdown("#### 📊 KPI principal")
         if kpis:
@@ -2373,6 +2595,17 @@ with tabs[8]:
             st.plotly_chart(fig_kpi, use_container_width=True)
         else:
             st.caption("Não há KPIs para exibir no relatório completo.")
+
+        st.markdown("#### 🗓️ Gráfico de Gantt")
+        if eapTasks and tap.get("dataInicio"):
+            fig_gantt_rel = gerar_gantt(eapTasks, tap["dataInicio"])
+            if fig_gantt_rel:
+                st.plotly_chart(fig_gantt_rel, use_container_width=True)
+            else:
+                st.caption("Gantt indisponível - verifique EAP e data de início.")
+        else:
+            st.caption("Gantt indisponível - verifique EAP e data de início.")
+
 
 # --------------------------------------------------------
 # TAB 9 - PLANO DE AÇÃO
